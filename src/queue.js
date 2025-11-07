@@ -57,30 +57,52 @@ function listJobs(state = null) {
 function fetchNextJobForProcessing(workerId) {
   const now = new Date().toISOString();
 
-  const stmt = db.prepare(`
+  const select = db.prepare(`
     SELECT * FROM jobs
     WHERE state = 'pending'
       AND (
-        (run_at IS NULL OR datetime(run_at) <= datetime(?))
-        AND (next_run_at IS NULL OR datetime(next_run_at) <= datetime(?))
+        run_at IS NULL
+        OR datetime(run_at) <= datetime(?)
+      )
+      AND (
+        next_run_at IS NULL
+        OR datetime(next_run_at) <= datetime(?)
       )
     ORDER BY priority ASC, created_at ASC
     LIMIT 1
   `);
 
-  const job = stmt.get(now, now);
+  const job = select.get(now, now);
   if (!job) return null;
 
+  // Mark as processing
   const update = db.prepare(`
     UPDATE jobs
     SET state = 'processing', worker_id = ?, updated_at = ?
     WHERE id = ? AND state = 'pending'
   `);
+
   const info = update.run(workerId, now, job.id);
   if (info.changes === 0) return null;
 
   return db.prepare(`SELECT * FROM jobs WHERE id = ?`).get(job.id);
 }
+
+function autoActivateMissedJobs() {
+  const now = new Date().toISOString();
+  const stmt = db.prepare(`
+    UPDATE jobs
+    SET next_run_at = ?, updated_at = ?
+    WHERE state = 'pending'
+      AND run_at IS NOT NULL
+      AND datetime(run_at) < datetime(?)
+  `);
+  const info = stmt.run(now, now, now);
+  if (info.changes > 0) {
+    console.log(`⚡ Auto-activated ${info.changes} missed job(s) for immediate processing`);
+  }
+}
+
 
 
 //Mark if the job is completed
@@ -163,5 +185,5 @@ function markJobDead(jobId, error, attempts) {
 
 module.exports = {
   enqueue, getStatusSummary, listJobs, fetchNextJobForProcessing,
-  markJobCompleted, markJobFailed, moveDlqRetry, deleteJob, listDeadJobs, listAllJobs, markJobDead, listParticularJobs
+  markJobCompleted, markJobFailed, moveDlqRetry, deleteJob, listDeadJobs, listAllJobs, markJobDead, listParticularJobs,autoActivateMissedJobs
 };

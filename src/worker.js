@@ -14,14 +14,17 @@ class Worker {
   async runLoop() {
     while (this.running && !this.shutdownSignal()) {
       try {
+        // ⚡ Auto-reactivate missed jobs
+        queue.autoActivateMissedJobs();
+
         const job = queue.fetchNextJobForProcessing(this.id);
         if (!job) {
-          // show we're waiting (for debugging)
           console.log(`[worker ${this.id}] waiting... ${new Date().toISOString()}`);
-          await delayMs(1000); // check every second
+          await delayMs(1000);
           continue;
         }
 
+        this.currentJob = job;
         await this.executeJob(job);
         this.currentJob = null;
       } catch (e) {
@@ -29,6 +32,7 @@ class Worker {
         await delayMs(1000);
       }
     }
+
   }
 
   executeJob(job) {
