@@ -124,6 +124,34 @@ yargs(hideBin(process.argv))
   }
 )
   .command(
+    'list',
+    'List jobs (optionally by state)',
+    (y) => {
+      y.option('state', {
+        describe: 'Filter jobs by state (pending, processing, completed, failed, dead)',
+        type: 'string',
+      });
+    },
+    (argv) => {
+      const { state } = argv;
+      try {
+        if (state) {
+          const jobs = queue.listParticularJobs(state);
+          if (jobs.length === 0) {
+            console.log(`⚠️  No jobs found with state '${state}'.`);
+          } else {
+            console.table(jobs);
+          }
+        } else {
+          console.log("ℹ️  Use --state <state> to list specific jobs, e.g. queuectl list --state pending");
+        }
+      } catch (err) {
+        console.error("❌ Error listing jobs:", err.message);
+      }
+    }
+  )
+  
+  .command(
     "Update <config>",
     "changes the backoff and max retries values"
     
