@@ -91,8 +91,8 @@ yargs(hideBin(process.argv))
   }
 )
 .command(
-  "list [state]",
-  "List jobs (optionally filter by state)",
+  "ls",
+  "List all jobs ",
   (y) => y.positional("state", {
     type: "string",
     describe: "Filter by job state (pending, processing, completed, failed, dead)",
@@ -150,7 +150,7 @@ yargs(hideBin(process.argv))
       }
     }
   )
-  
+
   .command(
     "Update <config>",
     "changes the backoff and max retries values"

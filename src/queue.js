@@ -1,27 +1,37 @@
 const db = require('./db');
 const { nowIso, uuidv4 } = require('./utils');
+const config = require('./config');
 
 //Enqueue Function
 function enqueue(jobJson) {
-  const job = typeof jobJson === "string" ? JSON.parse(jobJson) : jobJson;
-  const id = job.id || require("uuid").v4();
+  const job = typeof jobJson === 'string' ? JSON.parse(jobJson) : jobJson;
+  const id = job.id || uuidv4();
   const command = job.command;
-  const max_retries = job.max_retries || 3;
-  const priority = job.priority !== undefined ? job.priority : 100;
+  const max_retries = job.max_retries || parseInt(config.getConfig('max_retries') || '3', 10);
+  const priority = job.priority ?? 100;
   const created_at = new Date().toISOString();
   const updated_at = created_at;
 
+  // schedule future run time
+  let run_at = job.run_at || null;
+
+  // If user provided a local (no 'Z') timestamp, convert to UTC
+  if (run_at && !run_at.endsWith('Z')) {
+    const localDate = new Date(run_at); // interpreted as local time
+    run_at = localDate.toISOString();   // convert to UTC ISO string
+  }
+
+  const state = 'pending';
+
   const stmt = db.prepare(`
     INSERT INTO jobs (
-      id, command, state, attempts, max_retries,
-      created_at, updated_at, priority
-    )
-    VALUES (?, ?, 'pending', 0, ?, ?, ?, ?)
+      id, command, state, attempts, max_retries, created_at, updated_at, priority, run_at, next_run_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
-  stmt.run(id, command, max_retries, created_at, updated_at, priority);
+  stmt.run(id, command, state, 0, max_retries, created_at, updated_at, priority, run_at, run_at);
 
-  console.log(`✅ Enqueued job ${id} with priority ${priority}`);
+  console.log(`✅ Enqueued job ${id}${run_at ? ` (scheduled at ${run_at})` : ''}`);
   return id;
 }
 
@@ -35,7 +45,7 @@ function getStatusSummary() {
 
 
 //List all the jobs
-function listJobs(state=null) {
+function listJobs(state = null) {
   if (state) {
     return db.prepare(`SELECT * FROM jobs WHERE state = ? ORDER BY created_at DESC`).all(state);
   } else {
@@ -43,19 +53,22 @@ function listJobs(state=null) {
   }
 }
 
-//pick next job for processing
+// Fetch the next job due to run
 function fetchNextJobForProcessing(workerId) {
   const now = new Date().toISOString();
 
-  const select = db.prepare(`
+  const stmt = db.prepare(`
     SELECT * FROM jobs
     WHERE state = 'pending'
-      AND (next_run_at IS NULL OR next_run_at <= ?)
+      AND (
+        (run_at IS NULL OR datetime(run_at) <= datetime(?))
+        AND (next_run_at IS NULL OR datetime(next_run_at) <= datetime(?))
+      )
     ORDER BY priority ASC, created_at ASC
     LIMIT 1
   `);
 
-  const job = select.get(now);
+  const job = stmt.get(now, now);
   if (!job) return null;
 
   const update = db.prepare(`
@@ -63,11 +76,12 @@ function fetchNextJobForProcessing(workerId) {
     SET state = 'processing', worker_id = ?, updated_at = ?
     WHERE id = ? AND state = 'pending'
   `);
-  const res = update.run(workerId, now, job.id);
-  if (res.changes === 0) return null;
+  const info = update.run(workerId, now, job.id);
+  if (info.changes === 0) return null;
 
   return db.prepare(`SELECT * FROM jobs WHERE id = ?`).get(job.id);
 }
+
 
 //Mark if the job is completed
 function markJobCompleted(id) {
@@ -86,7 +100,7 @@ function markJobFailed(id, errMsg, attempts, max_retries, backoffSeconds) {
     stmt.run(errMsg, attempts, now, id);
   } else {
     // retryable failure — schedule next run
-    const nextRun = new Date(Date.now() + backoffSeconds*1000).toISOString();
+    const nextRun = new Date(Date.now() + backoffSeconds * 1000).toISOString();
     console.log(`[queue] job ${id} will retry in ${backoffSeconds}s`);
     const stmt = db.prepare(`UPDATE jobs SET state='failed', last_error=?, attempts=?, next_run_at=?, updated_at=?, worker_id=NULL WHERE id=?`);
     stmt.run(errMsg, attempts, nextRun, now, id);
@@ -96,7 +110,7 @@ function markJobFailed(id, errMsg, attempts, max_retries, backoffSeconds) {
 //retry the jobs in DLQ
 function moveDlqRetry(id) {
   const job = db.prepare(`SELECT * FROM jobs WHERE id = ? AND state = 'dead'`).get(id);
-  if (!job) throw new Error('No dead job found with id '+id);
+  if (!job) throw new Error('No dead job found with id ' + id);
   const stmt = db.prepare(`UPDATE jobs SET state='pending', attempts=0, last_error=NULL, next_run_at=NULL, updated_at=? WHERE id=?`);
   stmt.run(nowIso(), id);
 }
@@ -120,7 +134,7 @@ function listAllJobs() {
 
 //list particular state jobs
 
-function listParticularJobs(state){
+function listParticularJobs(state) {
   const stmt = db.prepare(`SELECT * FROM jobs where state= ? ORDER BY created_at DESC`);
   return stmt.all(state);
 }
@@ -149,5 +163,5 @@ function markJobDead(jobId, error, attempts) {
 
 module.exports = {
   enqueue, getStatusSummary, listJobs, fetchNextJobForProcessing,
-  markJobCompleted, markJobFailed, moveDlqRetry, deleteJob,listDeadJobs,listAllJobs,markJobDead,listParticularJobs
+  markJobCompleted, markJobFailed, moveDlqRetry, deleteJob, listDeadJobs, listAllJobs, markJobDead, listParticularJobs
 };

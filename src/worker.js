@@ -16,18 +16,19 @@ class Worker {
       try {
         const job = queue.fetchNextJobForProcessing(this.id);
         if (!job) {
-          await delayMs(1); // idle 1s
+          // show we're waiting (for debugging)
+          console.log(`[worker ${this.id}] waiting... ${new Date().toISOString()}`);
+          await delayMs(1000); // check every second
           continue;
         }
-        this.currentJob = job;
+
         await this.executeJob(job);
         this.currentJob = null;
       } catch (e) {
         console.error(`[worker ${this.id}] error loop:`, e);
-        await delayMs(1);
+        await delayMs(1000);
       }
     }
-    // graceful exit, let current job finish (currentJob tracked)
   }
 
   executeJob(job) {
@@ -39,7 +40,7 @@ class Worker {
       const proc = spawn(process.platform === 'win32' ? 'cmd.exe' : '/bin/sh',
         [process.platform === 'win32' ? '/c' : '-c', job.command],
         { stdio: 'ignore', env, detached: true });
-      
+
       // Set up job timeout
       const timeoutSeconds = parseInt(config.getConfig('job_timeout', '300'));
       const timeoutHandle = setTimeout(() => {

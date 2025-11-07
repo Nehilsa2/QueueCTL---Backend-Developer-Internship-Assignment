@@ -49,9 +49,9 @@ db.transaction(() => {
   }
 
   // Add new columns for bonus features
-  addColumnIfMissing('jobs', 'priority', 'INTEGER DEFAULT 100');
+//   addColumnIfMissing('jobs', 'priority', 'INTEGER DEFAULT 100');
 //   addColumnIfMissing('jobs', 'run_at', 'TEXT');
-//   addColumnIfMissing('jobs', 'next_run_at', 'TEXT');
+  addColumnIfMissing('jobs', 'next_run_at', 'TEXT');
 //   addColumnIfMissing('jobs', 'stdout', 'TEXT');
 //   addColumnIfMissing('jobs', 'stderr', 'TEXT');
 //   addColumnIfMissing('jobs', 'started_at', 'TEXT');
