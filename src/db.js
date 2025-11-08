@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS jobs (
   max_retries INTEGER NOT NULL DEFAULT 3,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
+  priority TEXT DEFAULT '100',
   run_at TEXT,
   next_run_at TEXT,
   worker_id TEXT

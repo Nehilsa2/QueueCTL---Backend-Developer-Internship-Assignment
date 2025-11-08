@@ -6,6 +6,8 @@ import boxen from "boxen";
 import ora from "ora";
 import Table from "cli-table3";
 
+import db from './db.js'
+
 // Helper function to get color for job state
 function getStateColor(state) {
   switch (state) {
@@ -216,6 +218,43 @@ yargs(hideBin(process.argv))
       }
     }
   )
+
+  //metrics
+
+  .command(
+  'metrics',
+  'Show queue performance metrics',
+  () => {},
+  () => {
+    try {
+      const summary = db.prepare(`
+        SELECT
+          COUNT(*) AS total_jobs,
+          SUM(CASE WHEN state='completed' THEN 1 ELSE 0 END) AS completed,
+          SUM(CASE WHEN state='failed' THEN 1 ELSE 0 END) AS failed,
+          SUM(CASE WHEN state='timeout' THEN 1 ELSE 0 END) AS timeouts,
+          ROUND(AVG(duration), 2) AS avg_duration
+        FROM job_metrics
+      `).get();
+
+      console.log("\n📊 Queue Performance Summary:");
+      console.table(summary);
+
+      const recent = db.prepare(`
+        SELECT job_id, command, state, duration, completed_at
+        FROM job_metrics
+        ORDER BY completed_at DESC
+        LIMIT 5
+      `).all();
+
+      console.log("\n🕓 Recent Job Executions:");
+      console.table(recent);
+    } catch (err) {
+      console.error("❌ Failed to load metrics:", err.message);
+    }
+  }
+)
+
 
   // ---------- CONFIG ----------
   .command(
