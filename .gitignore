@@ -21,9 +21,13 @@ package-lock.json
 *.db
 *.sqlite
 *.sqlite3
-*.queue.sqlite-shm
-*.queue.sqlite-wal
-*.queue.sqlite-bak
+queue.sqlite
+queue.sqlite-shm
+queue.sqlite-wal
+data/queue.sqlite*
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
 
 # ---------------------------------
 # Logs
