@@ -1,18 +1,25 @@
 {
   "name": "queuectl",
   "version": "0.1.0",
+  "type": "module",
   "main": "src/cli.js",
   "bin": {
     "queuectl": "src/cli.js"
   },
   "scripts": {
     "start": "node src/cli.js",
-    "migrate":"node scripts/updateschema.js",
+    "migrate": "node scripts/updateschema.js",
     "demo": "bash scripts/demo.sh"
   },
   "dependencies": {
     "better-sqlite3": "^8.7.0",
+    "boxen": "^8.0.1",
+    "chalk": "^5.6.2",
+    "cli-table3": "^0.6.5",
+    "figlet": "^1.9.3",
     "globally": "^0.0.0",
+    "gradient-string": "^3.0.0",
+    "ora": "^9.0.0",
     "uuid": "^9.0.1",
     "yargs": "^17.7.2"
   },

@@ -1,12 +1,12 @@
-//to generate the random job id
-const { v4: uuidv4 } = require('uuid');
+// to generate the random job id
+import { v4 as uuidv4 } from 'uuid';
 
-function nowIso() {
+export function nowIso() {
   return new Date().toISOString();
 }
 
-function delayMs(seconds) {
+export function delayMs(seconds) {
   return new Promise(resolve => setTimeout(resolve, Math.max(0, seconds*1000)));
 }
 
-module.exports = { uuidv4, nowIso, delayMs };
+export { uuidv4 };

@@ -1,6 +1,10 @@
-const Database = require('better-sqlite3');
-const path = require('path');
-const fs = require('fs');
+import Database from 'better-sqlite3';
+import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const DATA_DIR = path.join(__dirname, '..', 'data');
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR);
@@ -20,8 +24,8 @@ CREATE TABLE IF NOT EXISTS jobs (
   max_retries INTEGER NOT NULL DEFAULT 3,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
+  run_at TEXT,
   next_run_at TEXT,
-  last_error TEXT,
   worker_id TEXT
 );
 
@@ -31,4 +35,4 @@ CREATE TABLE IF NOT EXISTS config (
 );
 `);
 
-module.exports = db;
+export default db;

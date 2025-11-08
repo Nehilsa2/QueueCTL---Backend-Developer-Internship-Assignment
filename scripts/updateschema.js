@@ -1,17 +1,22 @@
-const Database = require('better-sqlite3');
-const fs = require('fs');
-const path = require('path');
+import Database from 'better-sqlite3';
+import path from 'path';
+import fs from 'fs';
+import { fileURLToPath } from 'url';
+
+// Get __dirname equivalent in ESM
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Path to your SQLite DB (adjust if needed)
-const dbDir = path.join(__dirname, "..", "data");
-const dbPath = path.join(dbDir, "queue.sqlite");
+const dbDir = path.join(__dirname, '..', 'data');
+const dbPath = path.join(dbDir, 'queue.sqlite');
 
-//ensure db folder exists
+// Ensure db folder exists
 if (!fs.existsSync(dbDir)) {
   fs.mkdirSync(dbDir, { recursive: true });
 }
 
-// ensure db exists
+// Ensure db exists
 if (!fs.existsSync(dbPath)) {
   console.error(`❌ Database file not found at ${dbPath}`);
   process.exit(1);
@@ -40,6 +45,24 @@ function addColumnIfMissing(table, column, definition) {
     console.log(`✅ Column ${column} already exists in ${table}`);
   }
 }
+function removeColumn(table, column) {
+  if (!columnExists(table, column)) {
+    console.log(`❌ Column '${column}' doesn't exist in '${table}'.`);
+    return;
+  }
+
+  try {
+    db.prepare(`ALTER TABLE ${table} DROP COLUMN ${column};`).run();
+    console.log(`✅ Column '${column}' removed successfully.`);
+  } catch (err) {
+    if (err.message.includes('near "DROP"')) {
+      console.log(`⚠️ SQLite version may not support DROP COLUMN. Using fallback...`);
+      removeColumnFallback(table, column);
+    } else {
+      console.error(`❌ Error removing column:`, err.message);
+    }
+  }
+}
 
 db.transaction(() => {
   // Ensure jobs table exists
@@ -51,7 +74,7 @@ db.transaction(() => {
   // Add new columns for bonus features
 //   addColumnIfMissing('jobs', 'priority', 'INTEGER DEFAULT 100');
 //   addColumnIfMissing('jobs', 'run_at', 'TEXT');
-  addColumnIfMissing('jobs', 'next_run_at', 'TEXT');
+  // addColumnIfMissing('jobs', 'next_run_at', 'TEXT');
 //   addColumnIfMissing('jobs', 'stdout', 'TEXT');
 //   addColumnIfMissing('jobs', 'stderr', 'TEXT');
 //   addColumnIfMissing('jobs', 'started_at', 'TEXT');
@@ -60,6 +83,10 @@ db.transaction(() => {
 //   addColumnIfMissing('jobs', 'attempt_timestamps', 'TEXT');
 
   // Ensure metrics table exists
+
+  removeColumn('jobs','last_error');
+
+
   if (!tableExists('metrics')) {
     console.log('📊 Creating table metrics');
     db.prepare(`

@@ -1,6 +1,6 @@
-const db = require('./db');
-const { nowIso, uuidv4 } = require('./utils');
-const config = require('./config');
+import db from './db.js';
+import { nowIso, uuidv4 } from './utils.js';
+import * as config from './config.js';
 
 //Enqueue Function
 function enqueue(jobJson) {
@@ -182,8 +182,7 @@ function markJobDead(jobId, error, attempts) {
   console.log(`[queue] job ${jobId} saved to DLQ`);
 }
 
-
-module.exports = {
+export {
   enqueue, getStatusSummary, listJobs, fetchNextJobForProcessing,
-  markJobCompleted, markJobFailed, moveDlqRetry, deleteJob, listDeadJobs, listAllJobs, markJobDead, listParticularJobs,autoActivateMissedJobs
+  markJobCompleted, markJobFailed, moveDlqRetry, deleteJob, listDeadJobs, listAllJobs, markJobDead, listParticularJobs, autoActivateMissedJobs
 };

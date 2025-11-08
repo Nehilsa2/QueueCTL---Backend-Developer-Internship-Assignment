@@ -1,8 +1,46 @@
 #!/usr/bin/env node
-const yargs = require("yargs/yargs");
-const { hideBin } = require("yargs/helpers");
-const queue = require("./queue");
-const { WorkerManager } = require("./worker");
+import chalk from "chalk";
+import figlet from "figlet";
+import gradient from "gradient-string";
+import boxen from "boxen";
+import ora from "ora";
+import Table from "cli-table3";
+
+// Helper function to get color for job state
+function getStateColor(state) {
+  switch (state) {
+    case 'pending': return 'yellow';
+    case 'processing': return 'blue';
+    case 'completed': return 'green';
+    case 'failed': return 'red';
+    case 'dead': return 'magenta';
+    default: return 'white';
+  }
+}
+
+import yargs from 'yargs/yargs';
+import { hideBin } from 'yargs/helpers';
+import * as queue from './queue.js';
+import { WorkerManager } from './worker.js';
+import * as cfg from './config.js';
+
+
+console.clear();
+
+console.log(
+  boxen(
+    chalk.bold("⚡ Background Job Manager") +
+      "\n" +
+      chalk.gray("Manage async jobs, retries, workers, and DLQ with ease."),
+    {
+      padding: 1,
+      margin: 1,
+      borderStyle: "round",
+      borderColor: "cyan",
+    }
+  )
+);
+
 
 yargs(hideBin(process.argv))
   // ---------- ENQUEUE ----------
@@ -85,47 +123,14 @@ yargs(hideBin(process.argv))
     if (argv.action === "list") {
       const jobs = queue.listDeadJobs();
       if (jobs.length === 0) console.log("🪦 DLQ empty.");
-      else console.table(jobs.map(j => ({ id: j.id, command: j.command, attempts: j.attempts, error: j.last_error })));
+      else console.table(jobs.map(j => ({ id: j.id, command: j.command, attempts: j.attempts })));
       process.exit(0);
     }
   }
 )
 .command(
-  "ls",
-  "List all jobs ",
-  (y) => y.positional("state", {
-    type: "string",
-    describe: "Filter by job state (pending, processing, completed, failed, dead)",
-  }),
-  (argv) => {
-    let rows;
-    if (argv.state) {
-      const stmt = queue.db.prepare(`SELECT * FROM jobs WHERE state = ? ORDER BY created_at DESC`);
-      rows = stmt.all(argv.state);
-    } else {
-      rows = queue.listAllJobs();
-    }
-
-    if (rows.length === 0) {
-      console.log("🗃️ No jobs found.");
-    } else {
-      console.table(rows.map(j => ({
-        id: j.id,
-        command: j.command,
-        state: j.state,
-        attempts: j.attempts,
-        max_retries: j.max_retries,
-        created_at: j.created_at,
-        updated_at: j.updated_at,
-        last_error: j.last_error
-      })));
-    }
-    process.exit(0);
-  }
-)
-  .command(
     'list',
-    'List jobs (optionally by state)',
+    'List all jobs or filter by state',
     (y) => {
       y.option('state', {
         describe: 'Filter jobs by state (pending, processing, completed, failed, dead)',
@@ -135,26 +140,56 @@ yargs(hideBin(process.argv))
     (argv) => {
       const { state } = argv;
       try {
+        let jobs;
         if (state) {
-          const jobs = queue.listParticularJobs(state);
+          jobs = queue.listParticularJobs(state);
           if (jobs.length === 0) {
-            console.log(`⚠️  No jobs found with state '${state}'.`);
-          } else {
-            console.table(jobs);
+            console.log(`⚠️  No jobs found with state '${state}'`);
+            return;
           }
         } else {
-          console.log("ℹ️  Use --state <state> to list specific jobs, e.g. queuectl list --state pending");
+          jobs = queue.listAllJobs();
+          if (jobs.length === 0) {
+            console.log("🗃️ No jobs found in the queue");
+            return;
+          }
         }
+
+        // Create a formatted table with all job details
+        const table = new Table({
+          head: [
+            chalk.cyan("ID"),
+            chalk.cyan("Command"),
+            chalk.cyan("State"),
+            chalk.cyan("Attempts"),
+            chalk.cyan("Max Retries"),
+            chalk.cyan("Created At"),
+            chalk.cyan("Update at"),
+            chalk.cyan("run at")
+          ],
+          wordWrap: true,
+          colWidths: [15, 25, 12, 10, 12, 25]
+        });
+
+        // Add jobs to table
+        jobs.forEach(job => {
+          table.push([
+            job.id,
+            job.command,
+            chalk[getStateColor(job.state)](job.state),
+            `${job.attempts}`,
+            `${job.max_retries}`,
+            job.created_at,
+            job.updated_at,
+            job.run_at
+          ]);
+        });
+
+        console.log(table.toString());
       } catch (err) {
         console.error("❌ Error listing jobs:", err.message);
       }
     }
-  )
-
-  .command(
-    "Update <config>",
-    "changes the backoff and max retries values"
-    
   )
 
   // ---------- CONFIG ----------
@@ -175,13 +210,12 @@ yargs(hideBin(process.argv))
         describe: "Value to set (for set only)",
       }),
     (argv) => {
-      const config = require("./config");
       if (argv.action === "get") {
         if (!argv.key) {
           console.error("Please provide a config key to get.");
           process.exit(1);
         }
-        const val = config.getConfig(argv.key);
+        const val = cfg.getConfig(argv.key);
         if (val === undefined || val === null) {
           console.log(`Config '${argv.key}' not set.`);
         } else {
@@ -193,7 +227,7 @@ yargs(hideBin(process.argv))
           console.error("Please provide both key and value to set.");
           process.exit(1);
         }
-        config.setConfig(argv.key, argv.value);
+        cfg.setConfig(argv.key, argv.value);
         console.log(`Config '${argv.key}' set to '${argv.value}'.`);
         process.exit(0);
       }

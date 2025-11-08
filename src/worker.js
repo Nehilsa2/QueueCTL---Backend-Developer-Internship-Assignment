@@ -1,7 +1,7 @@
-const { spawn } = require('child_process');
-const { delayMs } = require('./utils');
-const queue = require('./queue');
-const config = require('./config');
+import { spawn } from 'child_process';
+import { delayMs } from './utils.js';
+import * as queue from './queue.js';
+import * as config from './config.js';
 
 class Worker {
   constructor(id, shutdownSignal) {
@@ -164,4 +164,4 @@ class WorkerManager {
   activeCount() { return this.workers.size; }
 }
 
-module.exports = { WorkerManager };
+export { WorkerManager };
