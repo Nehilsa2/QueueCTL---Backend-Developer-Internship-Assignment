@@ -84,7 +84,7 @@ db.transaction(() => {
 
   // Ensure metrics table exists
 
-  removeColumn('jobs','last_error');
+  // removeColumn('jobs','last_error');
 
 
   if (!tableExists('metrics')) {
@@ -108,6 +108,19 @@ db.transaction(() => {
     console.log('✅ Table metrics already exists');
   }
 })();
+
+
+db.prepare(`
+  CREATE TABLE IF NOT EXISTS job_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_id TEXT NOT NULL,
+    log_output TEXT,
+    created_at TEXT DEFAULT (datetime('now')),
+    FOREIGN KEY (job_id) REFERENCES jobs(id) ON DELETE CASCADE
+  )
+`).run();
+
+console.log("✅ Schema updated: Added 'job_logs' table.");
 
 console.log('🎉 Database schema update complete!');
 db.close();
