@@ -25,21 +25,6 @@ import { WorkerManager } from './worker.js';
 import * as cfg from './config.js';
 
 
-console.clear();
-
-console.log(
-  boxen(
-    chalk.bold("⚡ Background Job Manager") +
-      "\n" +
-      chalk.gray("Manage async jobs, retries, workers, and DLQ with ease."),
-    {
-      padding: 1,
-      margin: 1,
-      borderStyle: "round",
-      borderColor: "cyan",
-    }
-  )
-);
 
 
 yargs(hideBin(process.argv))
