@@ -27,7 +27,7 @@
 ### 🧩 Clone the repository
 ```bash
 git clone https://github.com/Nehilsa2/QueueCTL.git
-cd queuectl
+cd QueueCTL
 ```
 ### Run test_script.sh file in bash
 Test script will run and a worker.log file will be created at root to store worker logs
@@ -79,32 +79,32 @@ queuectl enqueue '{"id":"job1","command":"echo Hello Queue"}'
 
 ### 🧩 Basic Command
 ```bash
-node src/cli.js enqueue '{"command":"echo Hello QueueCTL!"}'
+queuectl enqueue '{"command":"echo Hello QueueCTL!"}'
 ```
 🔁 With Custom Retries
 ```bash
 
-node src/cli.js enqueue '{"command":"ping -n 5 127.0.0.1", "max_retries":5}'
+queuectl enqueue '{"command":"ping -n 5 127.0.0.1", "max_retries":5}'
 ```
 ⚙️ With Priority
 ```bash
 
-node src/cli.js enqueue '{"command":"echo Urgent job", "priority":1}'
+queuectl enqueue '{"command":"echo Urgent job", "priority":1}'
 ```
 ⏰ With Scheduled Execution
 ```bash
 
-node src/cli.js enqueue '{"command":"echo Scheduled job", "run_at":"2025-11-09T18:00:00"}'
+queuectl enqueue '{"command":"echo Scheduled job", "run_at":"2025-11-09T18:00:00"}'
 ```
 ⏳ With Custom Timeout
 ```bash
 
-node src/cli.js enqueue '{"command":"ping -n 10 127.0.0.1", "timeout":5}'
+queuectl enqueue '{"command":"ping -n 10 127.0.0.1", "timeout":5}'
 ```
 🧠 With All Attributes
 ```bash
 
-node src/cli.js enqueue '{
+queuectl enqueue '{
   "command": "ping -n 10 127.0.0.1",
   "max_retries": 4,
   "priority": 10,
@@ -116,18 +116,18 @@ node src/cli.js enqueue '{
 💀 Failing Job (DLQ Test)
 ```bash
 
-node src/cli.js enqueue '{"command":"false"}'
+queuectl enqueue '{"command":"false"}'
 ```
 🕒 Timeout Test (Windows)
 ```bash
 
-node src/cli.js enqueue '{"command":"ping -n 20 127.0.0.1"}'
+queuectl enqueue '{"command":"ping -n 20 127.0.0.1"}'
 
 ```
 
 ### 🧵 Start workers in different terminal
 ```bash
-queuectl worker start -count 3
+queuectl worker start --count 3
 ```
 
 ### 📋 List jobs
