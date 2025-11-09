@@ -132,6 +132,75 @@ function markJobFailed(id, errMsg, attempts, max_retries, backoffSeconds) {
   }
 }
 
+
+function listJobs(state = null) {
+  try {
+    let query = `SELECT id, command, state, attempts, max_retries, created_at, updated_at, run_at, next_run_at, worker_id
+                 FROM jobs`;
+    let params = [];
+
+    if (state) {
+      query += ` WHERE state = ?`;
+      params.push(state);
+    }
+
+    query += ` ORDER BY created_at DESC`;
+
+    const rows = db.prepare(query).all(...params);
+    return rows;
+  } catch (err) {
+    console.error("❌ Error fetching jobs:", err.message);
+    return [];
+  }
+}
+
+
+// 🪦 List all jobs in Dead Letter Queue (DLQ)
+function listDeadJobs() {
+  try {
+    const rows = db
+      .prepare(`
+        SELECT id, command, attempts, max_retries, created_at, updated_at, run_at, worker_id
+        FROM jobs
+        WHERE state = 'dead'
+        ORDER BY updated_at DESC
+      `)
+      .all();
+
+    return rows;
+  } catch (err) {
+    console.error("❌ Error fetching DLQ jobs:", err.message);
+    return [];
+  }
+}
+
+
+// 🔁 Retry a dead job (single or all)
+function retryDeadJob(jobId = null) {
+  if (jobId) {
+    const job = db.prepare(`SELECT * FROM jobs WHERE id = ? AND state = 'dead'`).get(jobId);
+    if (!job) throw new Error(`No dead job found with ID '${jobId}'`);
+    db.prepare(
+      `UPDATE jobs SET state='pending', attempts=0, next_run_at=NULL, updated_at=datetime('now') WHERE id=?`
+    ).run(jobId);
+    return 1;
+  } else {
+    const info = db
+      .prepare(`UPDATE jobs SET state='pending', attempts=0, next_run_at=NULL, updated_at=datetime('now') WHERE state='dead'`)
+      .run();
+    return info.changes;
+  }
+}
+
+// 🧹 Clear all dead jobs
+function clearDeadJobs() {
+  const info = db.prepare(`DELETE FROM jobs WHERE state='dead'`).run();
+  return info.changes;
+}
+
+
+
+
 // Status helpers
 function getStatusSummary() {
   const rows = db.prepare(`SELECT state, COUNT(*) as cnt FROM jobs GROUP BY state`).all();
@@ -150,6 +219,10 @@ export {
   reactivateWaitingJobs,
   activateScheduledJobs,
   autoActivateMissedJobs,
-  getStatusSummary
+  getStatusSummary,
+  listJobs,
+  listDeadJobs,
+  retryDeadJob,
+  clearDeadJobs
 };
 

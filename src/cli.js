@@ -1,8 +1,15 @@
 #!/usr/bin/env node
 import chalk from "chalk";
-import Table from "cli-table3";
+import { formatIST } from './utils.js';
+import Table from 'cli-table3';
+import db from './db.js';
+import yargs from 'yargs';
+import { hideBin } from 'yargs/helpers';
+import * as queue from './queue.js';
+import { WorkerManager } from './worker.js';
+import * as cfg from './config.js';
 
-import db from './db.js'
+
 
 // Helper function to get color for job state
 function getStateColor(state) {
@@ -15,12 +22,6 @@ function getStateColor(state) {
     default: return 'white';
   }
 }
-
-import yargs from 'yargs';
-import { hideBin } from 'yargs/helpers';
-import * as queue from './queue.js';
-import { WorkerManager } from './worker.js';
-import * as cfg from './config.js';
 
 
 
@@ -99,81 +100,147 @@ yargs(hideBin(process.argv))
 
   //-----------DLQ------------//
   .command(
-  "dlq <action>",
-  "Dead Letter Queue operations",
-  (y) => y.positional("action", { choices: ["list", "retry"], describe: "List or retry dead jobs" }),
+  'dlq <action> [jobId]',
+  'Manage Dead Letter Queue (DLQ)',
+  (y) =>
+    y
+      .positional('action', {
+        choices: ['list', 'retry', 'clear'],
+        describe: 'DLQ actions: list, retry all / one, or clear all',
+      })
+      .positional('jobId', {
+        describe: 'Optional job ID (used with retry)',
+        type: 'string',
+      }),
   (argv) => {
-    if (argv.action === "list") {
+    const { action, jobId } = argv;
+
+    if (action === 'list') {
       const jobs = queue.listDeadJobs();
-      if (jobs.length === 0) console.log("🪦 DLQ empty.");
-      else console.table(jobs.map(j => ({ id: j.id, command: j.command, attempts: j.attempts })));
-      process.exit(0);
+      if (!jobs || jobs.length === 0) {
+        console.log('🪦 DLQ empty — no dead jobs found.');
+        return;
+      }
+
+      const table = new Table({
+        head: [
+          chalk.red('ID'),
+          chalk.red('Command'),
+          chalk.yellow('Attempts'),
+          chalk.cyan('Max Retries'),
+          chalk.gray('Created At (IST)'),
+          chalk.gray('Updated At (IST)'),
+        ],
+        wordWrap: true,
+        wrapOnWordBoundary: false,
+        colWidths: [15, 25, 15, 15, 22, 22],
+      });
+
+      jobs.forEach((job) => {
+        table.push([
+          job.id,
+          job.command,
+          job.attempts,
+          job.max_retries,
+          formatIST(job.created_at),
+          formatIST(job.updated_at),
+        ]);
+      });
+
+      console.log(table.toString());
+      return;
+    }
+
+    if (action === 'retry') {
+      try {
+        if (jobId) {
+          // Retry specific job
+          const retried = queue.retryDeadJob(jobId);
+          console.log(`🔁 Retried job '${jobId}' (${retried} record updated)`);
+        } else {
+          // Retry all dead jobs
+          const retried = queue.retryDeadJob();
+          if (retried > 0) console.log(`🔁 Retried ${retried} dead job(s)`);
+          else console.log('🪦 DLQ empty — nothing to retry.');
+        }
+      } catch (err) {
+        console.error(`❌ Failed to retry job: ${err.message}`);
+      }
+      return;
+    }
+
+    if (action === 'clear') {
+      const deleted = queue.clearDeadJobs();
+      if (deleted > 0)
+        console.log(`🧹 Cleared ${deleted} dead job(s) from DLQ permanently.`);
+      else console.log('🪦 DLQ already empty.');
+      return;
     }
   }
 )
+
+
+
+// ---------- LIST JOBS ----------
 .command(
-    'list',
-    'List all jobs or filter by state',
-    (y) => {
-      y.option('state', {
-        describe: 'Filter jobs by state (pending, processing, completed, failed, dead)',
-        type: 'string',
-      });
-    },
-    (argv) => {
-      const { state } = argv;
-      try {
-        let jobs;
-        if (state) {
-          jobs = queue.listParticularJobs(state);
-          if (jobs.length === 0) {
-            console.log(`⚠️  No jobs found with state '${state}'`);
-            return;
-          }
-        } else {
-          jobs = queue.listAllJobs();
-          if (jobs.length === 0) {
-            console.log("🗃️ No jobs found in the queue");
-            return;
-          }
-        }
-
-        // Create a formatted table with all job details
-        const table = new Table({
-          head: [
-            chalk.cyan("ID"),
-            chalk.cyan("Command"),
-            chalk.cyan("State"),
-            chalk.cyan("Attempts"),
-            chalk.cyan("Max Retries"),
-            chalk.cyan("Created At"),
-            chalk.cyan("Update at"),
-            chalk.cyan("run at")
-          ],
-          wordWrap: true,
-          colWidths: [15, 25, 12, 10, 12, 25]
-        });
-
-        // Add jobs to table
-        jobs.forEach(job => {
-          table.push([
-            job.id,
-            job.command,
-            chalk[getStateColor(job.state)](job.state),
-            `${job.attempts}`,
-            `${job.max_retries}`,
-            job.created_at,
-            job.updated_at,
-            job.run_at
-          ]);
-        });
-
-        console.log(table.toString());
-      } catch (err) {
-        console.error("❌ Error listing jobs:", err.message);
+  'list',
+  'List all jobs or filter by state',
+  (y) => {
+    y.option('state', {
+      alias: 's',
+      describe: 'Filter jobs by state (pending, processing, waiting, completed, dead, scheduled)',
+      type: 'string',
+    });
+  },
+  (argv) => {
+    const { state } = argv;
+    try {
+      const jobs = queue.listJobs(state);
+      if (!jobs || jobs.length === 0) {
+        console.log(state ? `⚠️ No jobs found with state '${state}'` : "🗃️ No jobs found in the queue");
+        return;
       }
+
+      const table = new Table({
+        head: [
+          chalk.cyan('ID'),
+          chalk.cyan('Command'),
+          chalk.cyan('State'),
+          chalk.cyan('Created At (IST)'),
+          chalk.cyan('Updated At (IST)'),
+          chalk.cyan('Worker'),
+        ],
+        wordWrap: true,
+        wrapOnWordBoundary: false,
+        colWidths: [20, 15, 18, 20, 20, 18],
+      });
+
+      jobs.forEach((job) => {
+        table.push([
+          job.id,
+          job.command,
+          chalk[
+            job.state === 'completed' ? 'green'
+            : job.state === 'processing' ? 'blue'
+            : job.state === 'waiting' ? 'yellow'
+            : job.state === 'scheduled' ? 'magenta'
+            : job.state === 'dead' ? 'red'
+            : 'white'
+          ](job.state),
+          formatIST(job.created_at),
+          formatIST(job.updated_at),
+          job.worker_id || '-',
+        ]);
+      });
+
+      console.log(table.toString());
+    } catch (err) {
+      console.error('❌ Error listing jobs:', err.message);
     }
-  )
+  }
+)
+
+
 
   // ---------- LOGS ----------
   .command(
@@ -215,7 +282,7 @@ yargs(hideBin(process.argv))
     }
   )
 
-  //metrics
+  // ---------- METRICS ----------
 
   .command(
   'metrics',
@@ -298,3 +365,4 @@ yargs(hideBin(process.argv))
   .help()
   .strict() // disallow unknown commands
   .parse();
+

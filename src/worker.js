@@ -71,27 +71,56 @@ class Worker {
     );
 
     const timeoutSeconds = parseInt(config.getConfig('job_timeout', '300'), 10);
+    const start = Date.now();
+
+    let killed = false;
+
     const timeoutHandle = setTimeout(() => {
-      console.log(`[worker ${this.id}] job ${job.id} timed out after ${timeoutSeconds}s`);
+      killed = true;
+      console.log(
+        `[worker ${this.id}] ⏱️ job ${job.id} exceeded timeout (${timeoutSeconds}s), terminating...`
+      );
       proc.kill('SIGTERM');
     }, timeoutSeconds * 1000);
+
+    // proc.stdout.on('data', (data) => {
+    //   const out = data.toString().trim();
+    //   if (out) queue.addJobLog(job.id, out);
+    // });
+
+    // proc.stderr.on('data', (data) => {
+    //   const err = data.toString().trim();
+    //   if (err) queue.addJobLog(job.id, `[stderr] ${err}`);
+    // });
+
 
     await new Promise((resolve) => {
       proc.on('exit', (code, signal) => {
         clearTimeout(timeoutHandle);
+
+        const duration = ((Date.now() - start) / 1000).toFixed(2);
+
         const attempts = job.attempts + 1;
         const maxRetries = job.max_retries;
         const base = parseFloat(config.getConfig('backoff_base', '2'));
         const backoffSeconds = Math.pow(base, attempts);
 
-        if (code === 0) {
+        if (killed || signal === 'SIGTERM') {
+          console.log(`[worker ${this.id}] ❌ job ${job.id} timed out after ${duration}s`);
+          queue.markJobFailed(job.id, 'timeout', attempts, maxRetries, backoffSeconds);
+        }
+
+        else if (code === 0) {
           console.log(`[worker ${this.id}] ✅ job ${job.id} completed successfully.`);
           queue.markJobCompleted(job.id);
-        } else {
+        } 
+        
+        else {
           const errMsg = signal === 'SIGTERM' ? 'timeout' : `exit=${code}`;
           console.log(`[worker ${this.id}] ❌ job ${job.id} failed. retrying in ${backoffSeconds}s`);
           queue.markJobFailed(job.id, errMsg, attempts, maxRetries, backoffSeconds);
         }
+
         resolve();
       });
 
