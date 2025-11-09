@@ -6,6 +6,20 @@
   <img src="https://img.shields.io/badge/Queue-Management-orange?style=for-the-badge" />
 </p>
 
+<p align="center">
+  <img src="https://readme-typing-svg.herokuapp.com?font=Fira+Code&size=24&pause=1500&color=58A6FF&center=true&vCenter=true&width=700&height=60&lines=🔥+Asynchronous+Job+Processing;⚙️+Real-Time+Monitoring+Dashboard;💾+Persistent+Queue+with+Retry+and+DLQ" alt="Typing Animation" />
+</p>
+
+<p align="center">
+  <img src="https://capsule-render.vercel.app/api?type=waving&height=140&color=0:58A6FF,100:00FFAA&text=QueueCTL%20Workflow%20Automation&fontAlignY=35&fontSize=30&animation=twinkling" />
+</p>
+
+
+
+<!-- <p align="center">
+  <img src="https://capsule-render.vercel.app/api?type=waving&color=0:58A6FF,100:00FFAA&height=120&section=footer&text=QueueCTL%20Workflow%20Automation&fontSize=30&fontAlignY=40&animation=twinkling&descAlignY=50" />
+</p> -->
+
 ---
 
 ## ⚙️ **Setup & Installation**
