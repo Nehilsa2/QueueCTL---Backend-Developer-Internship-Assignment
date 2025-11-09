@@ -120,8 +120,6 @@ class Worker {
         await delayMs(0.5);
       }
     }
-
-    console.log(`[worker ${this.id}] ✅ finished current job and stopped.`);
   }
 }
 
