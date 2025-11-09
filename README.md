@@ -226,9 +226,7 @@ queuectl dlq retry
 
 ## 🖥️ **Dashboard Preview**
 
-<p align="center">
-  <img src="https://github.com/kentcdodds/kentcdodds.com/raw/main/public/img/hero.gif" width="80%" alt="Dashboard Animation" />
-</p>
+<img width="1899" height="924" alt="image" src="https://github.com/user-attachments/assets/f0ce5635-73de-450f-884f-c97aed025f10" />
 
 ---
 
