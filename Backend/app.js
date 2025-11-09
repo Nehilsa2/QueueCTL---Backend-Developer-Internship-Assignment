@@ -9,22 +9,26 @@ app.use(express.json());
 
 app.get("/", (req, res) => res.send("QueueCTL API Running 🚀"));
 
-// ✅ 1. Queue Summary (state counts + active workers)
+// ✅ 1. Queue Summary (state counts)
 app.get("/api/status", (req, res) => {
   try {
     const summary = queue.getStatusSummary();
-    const workers = db
-      .prepare("SELECT COUNT(DISTINCT worker_id) as active_workers FROM jobs WHERE state='processing'")
-      .get();
+
+    // Ensure all states are always present (0 if missing)
+    const states = ["pending", "processing", "completed", "failed", "dead", "waiting"];
+    const by_state = {};
+    for (const s of states) by_state[s] = summary.by_state[s] || 0;
+
     res.json({
-      by_state: summary.by_state,
+      by_state,
       ready_pending: summary.ready_pending,
-      active_workers: workers.active_workers || 0,
+      active_workers,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
+
 
 // ✅ 2. List Jobs (optional ?state=pending)
 app.get("/api/jobs", (req, res) => {

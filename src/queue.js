@@ -120,7 +120,7 @@ function fetchNextJobForProcessing(workerId) {
   ).run(workerId, job.id);
 
   console.log(
-    `[queue] 🧩 picked job ${job.id} (priority=${job.priority || 0}, run_at=${job.run_at || 'NULL'})`
+    `🧩 picked job ${job.id} (priority=${job.priority || 0}, run_at=${job.run_at || 'NULL'})`
   );
 
   return job;
@@ -131,16 +131,16 @@ function fetchNextJobForProcessing(workerId) {
 function markJobCompleted(id) {
   db.prepare(`UPDATE jobs SET state='completed', updated_at=? WHERE id=?`).run(nowIso(), id);
 }
+
+
 function markJobFailed(id, errMsg, attempts, max_retries, backoffSeconds) {
   const now = nowIso();
   if (attempts > max_retries) {
-    console.log(`[queue] ❌ job ${id} exceeded max retries and moved to DLQ`);
     db.prepare(`
       UPDATE jobs SET state='dead', attempts=?, updated_at=?, worker_id=NULL WHERE id=?
     `).run(attempts, now, id);
   } else {
     const nextRun = new Date(Date.now() + backoffSeconds * 1000).toISOString();
-    console.log(`[queue] 🔁 job ${id} retry scheduled in ${backoffSeconds}s`);
     db.prepare(`
       UPDATE jobs
       SET state='waiting', attempts=?, next_run_at=?, updated_at=?, worker_id=NULL

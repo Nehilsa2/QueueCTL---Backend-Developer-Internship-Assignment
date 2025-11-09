@@ -1,4 +1,5 @@
 import { spawn } from 'child_process';
+import chalk from 'chalk';  // ← Added for coloring
 import { delayMs, nowIso } from './utils.js';
 import * as queue from './queue.js';
 import * as config from './config.js';
@@ -14,24 +15,19 @@ class Worker {
   }
 
   async runLoop() {
-    console.log(`[worker ${this.id}] started`);
+    console.log(chalk.green(`${this.id} started`));
 
     while (this.running) {
-      // Check if a shutdown is requested
       if (this.shutdownSignal() && !this.jobInProgress) {
-        console.log(`[worker ${this.id}] 🛑 shutdown signal received, no job running — exiting.`);
+        console.log(chalk.red(`${this.id} 🛑 exiting`));
         break;
       }
 
       try {
-        // Reactivate waiting or missed jobs
         queue.reactivateWaitingJobs();
         queue.autoActivateMissedJobs();
-
-        //activate scheduled jobs
         queue.activateScheduledJobs();
 
-        // Don’t pick a new job if shutdown requested
         if (this.shutdownSignal()) {
           await delayMs(1);
           continue;
@@ -49,35 +45,53 @@ class Worker {
         this.jobInProgress = false;
         this.currentJob = null;
       } catch (e) {
-        console.error(`[worker ${this.id}] error:`, e);
+        console.error(chalk.red(`${this.id} error:`), e);
         this.jobInProgress = false;
         this.currentJob = null;
         await delayMs(1);
       }
     }
 
-    console.log(`[worker ${this.id}] 💤 exited run loop.`);
+    console.log(chalk.gray(`${this.id} 💤 exited`));
   }
 
-  // Helper: write one row to job_metrics
   recordMetric(metricState, durationSec) {
-    if (!this.currentJob) return;
+  if (!this.currentJob) return;
 
-    const jobId = this.currentJob.id;
-    const command = this.currentJob.command;
-    const workerId = this.id;
-    const completedAt = nowIso();
+  const jobId = this.currentJob.id;
+  const command = this.currentJob.command;
+  const workerId = this.id;
+  const completedAt = nowIso();
 
-    try {
+  try {
+    // Check if job already exists in metrics table
+    const existing = db
+      .prepare(`SELECT id FROM job_metrics WHERE job_id = ?`)
+      .get(jobId);
+
+    if (existing) {
+      // Update existing metric instead of inserting duplicate
+      db.prepare(`
+        UPDATE job_metrics
+        SET 
+          state = ?,
+          duration = ?,
+          worker_id = ?,
+          completed_at = ?
+        WHERE job_id = ?
+      `).run(metricState, durationSec, workerId, completedAt, jobId);
+    } else {
+      // Insert new metric for first run
       db.prepare(`
         INSERT INTO job_metrics
         (job_id, command, state, duration, worker_id, completed_at)
         VALUES (?, ?, ?, ?, ?, ?)
       `).run(jobId, command, metricState, durationSec, workerId, completedAt);
-    } catch (e) {
-      console.error(`[worker ${this.id}] metric insert failed:`, e.message);
     }
+  } catch (e) {
+    console.error(chalk.red(`${this.id} metric failed:`), e.message);
   }
+}
 
   async executeJob(job) {
     const jobId = job.id;
@@ -85,14 +99,13 @@ class Worker {
     const timeoutSeconds = parseInt(config.getConfig('job_timeout', '300'), 10);
     const start = Date.now();
 
-    console.log(`[worker ${this.id}] executing job ${jobId}: ${job.command}`);
+    console.log(chalk.blue(`${this.id} exec ${jobId}: ${job.command}`));
 
-    // 🚀 Always insert "Job started" log before execution
     try {
       db.prepare(`INSERT INTO job_logs (job_id, log_output, created_at) VALUES (?, ?, datetime('now'))`)
         .run(jobId, `🚀 Job started at ${new Date().toISOString()}`);
     } catch (e) {
-      console.error(`[worker ${this.id}] failed to log start:`, e.message);
+      console.error(chalk.red(`${this.id} log start failed:`), e.message);
     }
 
     let proc;
@@ -110,48 +123,52 @@ class Worker {
 
       queue.markJobFailed(jobId, spawnErr.message, attempts, maxRetries, backoffSeconds);
       db.prepare(`INSERT INTO job_logs (job_id, log_output, created_at) VALUES (?, ?, datetime('now'))`)
-        .run(jobId, `⚠️ Failed to spawn process: ${spawnErr.message}`);
+        .run(jobId, `⚠️ Spawn failed: ${spawnErr.message}`);
       db.prepare(`INSERT INTO job_logs (job_id, log_output, created_at) VALUES (?, ?, datetime('now'))`)
-        .run(jobId, `🧩 Job terminated (spawn error) at ${new Date().toISOString()}`);
+        .run(jobId, `🧩 Terminated (spawn error) at ${new Date().toISOString()}`);
 
       const durationSec = (Date.now() - start) / 1000;
       this.recordMetric('failed', durationSec);
+
+      const newJobState = db.prepare('SELECT state FROM jobs WHERE id = ?').get(jobId)?.state;
+      if (newJobState === 'dead') {
+        console.log(chalk.red(`${this.id} ❌ sent to DLQ ${jobId} [${attempts} attempts]`));
+      } else {
+        console.log(chalk.yellow(`${this.id} ❌ Spawn fail, retry in ${backoffSeconds}s (${attempts}/${maxRetries})`));
+      }
       return;
     }
 
     let killed = false;
     const timeoutHandle = setTimeout(() => {
       killed = true;
-      console.log(`[worker ${this.id}] ⏱️ job ${jobId} exceeded timeout (${timeoutSeconds}s), terminating...`);
+      console.log(chalk.yellow(`${this.id} ⏱️ timeout ${jobId} (${timeoutSeconds}s)`));
       proc.kill('SIGTERM');
     }, timeoutSeconds * 1000);
 
-    // 📤 Capture stdout & stderr
     proc.stdout?.on('data', (data) => {
       const msg = data.toString().trim();
       if (!msg) return;
-      console.log(`[worker ${this.id}] [stdout] ${msg}`);
+      console.log(chalk.green(`${this.id} out: ${msg}`));
       try {
         db.prepare(`INSERT INTO job_logs (job_id, log_output, created_at) VALUES (?, ?, datetime('now'))`)
           .run(jobId, `📤 ${msg}`);
       } catch (e) {
-        console.error(`[worker ${this.id}] stdout log error:`, e.message);
+        console.error(chalk.red(`${this.id} out log failed:`), e.message);
       }
     });
 
     proc.stderr?.on('data', (data) => {
       const msg = data.toString().trim();
       if (!msg) return;
-      console.log(`[worker ${this.id}] [stderr] ${msg}`);
       try {
         db.prepare(`INSERT INTO job_logs (job_id, log_output, created_at) VALUES (?, ?, datetime('now'))`)
           .run(jobId, `[stderr] ${msg}`);
       } catch (e) {
-        console.error(`[worker ${this.id}] stderr log error:`, e.message);
+        console.error(chalk.red(`${this.id} err log failed:`), e.message);
       }
     });
 
-    // Wait for job completion
     await new Promise((resolve) => {
       proc.on('exit', (code, signal) => {
         clearTimeout(timeoutHandle);
@@ -167,29 +184,37 @@ class Worker {
 
         if (killed || signal === 'SIGTERM') {
           metricState = 'timeout';
-          statusMessage = `❌ Job timed out after ${durationStr}s`;
+          statusMessage = `⏱️ Timeout ${durationStr}s`;
           queue.markJobFailed(jobId, 'timeout', attempts, maxRetries, backoffSeconds);
         } else if (code === 0) {
           metricState = 'completed';
-          statusMessage = `✅ Job completed successfully (duration: ${durationStr}s)`;
+          statusMessage = `✅ Done ${durationStr}s`;
           queue.markJobCompleted(jobId);
+          console.log(chalk.green(`${this.id} ${statusMessage}`));
+          this.recordMetric(metricState, durationSec);
+          resolve();
+          return;
         } else {
           metricState = 'failed';
-          statusMessage = `❌ Job failed with exit=${code}, retrying in ${backoffSeconds}s`;
+          statusMessage = `❌ Fail exit=${code}`;
           queue.markJobFailed(jobId, `exit=${code}`, attempts, maxRetries, backoffSeconds);
         }
 
-        // termination logs
         try {
           db.prepare(`INSERT INTO job_logs (job_id, log_output, created_at) VALUES (?, ?, datetime('now'))`)
             .run(jobId, statusMessage);
           db.prepare(`INSERT INTO job_logs (job_id, log_output, created_at) VALUES (?, ?, datetime('now'))`)
-            .run(jobId, `🧩 Job terminated (exit=${code ?? 'N/A'}) at ${new Date().toISOString()}`);
+            .run(jobId, `🧩 Terminated at ${new Date().toISOString()}`);
         } catch (e) {
-          console.error(`[worker ${this.id}] failed to log termination:`, e.message);
+          console.error(chalk.red(`${this.id} term log failed:`), e.message);
         }
 
-        console.log(`[worker ${this.id}] ${statusMessage}`);
+        const newJobState = db.prepare('SELECT state FROM jobs WHERE id = ?').get(jobId)?.state;
+        if (newJobState === 'dead') {
+          console.log(chalk.red(`${this.id} ❌ sent to DLQ ${jobId} [${attempts} attempts]`));
+        } else {
+          console.log(chalk.yellow(`${this.id} ${statusMessage}, retry in ${backoffSeconds}s (${attempts}/${maxRetries})`));
+        }
 
         this.recordMetric(metricState, durationSec);
         resolve();
@@ -207,11 +232,18 @@ class Worker {
 
         try {
           db.prepare(`INSERT INTO job_logs (job_id, log_output, created_at) VALUES (?, ?, datetime('now'))`)
-            .run(jobId, `⚠️ Job process error: ${err.message}`);
+            .run(jobId, `⚠️ Proc error: ${err.message}`);
           db.prepare(`INSERT INTO job_logs (job_id, log_output, created_at) VALUES (?, ?, datetime('now'))`)
-            .run(jobId, `🧩 Job terminated (error) at ${new Date().toISOString()}`);
+            .run(jobId, `🧩 Terminated (error) at ${new Date().toISOString()}`);
         } catch (e) {
-          console.error(`[worker ${this.id}] failed to log process error:`, e.message);
+          console.error(chalk.red(`${this.id} proc log failed:`), e.message);
+        }
+
+        const newJobState = db.prepare('SELECT state FROM jobs WHERE id = ?').get(jobId)?.state;
+        if (newJobState === 'dead') {
+          console.log(chalk.red(`${this.id} ❌ sent to DLQ ${jobId} [${attempts} attempts]`));
+        } else {
+          console.log(chalk.yellow(`${this.id} ❌ Proc error, retry in ${backoffSeconds}s (${attempts}/${maxRetries})`));
         }
 
         this.recordMetric('failed', durationSec);
@@ -221,12 +253,11 @@ class Worker {
   }
 
   async stop() {
-    console.log(`[worker ${this.id}] 🕓 Graceful stop requested...`);
+    console.log(chalk.gray(`${this.id} 🕓 stopping...`));
     this.running = false;
 
-    // Wait if job currently executing
     if (this.jobInProgress) {
-      console.log(`[worker ${this.id}] waiting for job ${this.currentJob?.id} to finish...`);
+      console.log(chalk.gray(`${this.id} wait job ${this.currentJob?.id}`));
       while (this.jobInProgress) {
         await delayMs(0.5);
       }
@@ -241,27 +272,53 @@ class WorkerManager {
   }
 
   start(count = 1) {
-    // Reset stuck jobs
+    // Reset any stuck processing jobs before starting
     db.prepare(`UPDATE jobs SET state='pending', worker_id=NULL WHERE state='processing'`).run();
 
+    // Create workers
     for (let i = 0; i < count; i++) {
       const wid = `worker-${Date.now()}-${Math.random().toString(36).slice(2, 7)}-${i}`;
       const worker = new Worker(wid, () => this.shutdownRequested);
       this.workers.set(wid, worker);
+
+      // Register worker in DB
+      db.prepare(`
+        INSERT OR REPLACE INTO workers (id, started_at, last_heartbeat)
+        VALUES (?, datetime('now'), datetime('now'))
+      `).run(wid);
+
+      // Start worker loop
       worker.runLoop();
-      console.log(`[manager] started ${wid}`);
+
+      // 🩺 Heartbeat interval (every 2s)
+      const heartbeat = setInterval(() => {
+        db.prepare(`
+          UPDATE workers SET last_heartbeat = datetime('now') WHERE id = ?
+        `).run(wid);
+      }, 2000);
+
+      // Stop heartbeat on shutdown
+      worker.heartbeat = heartbeat;
     }
+
+    console.log(chalk.green(`🟢 Started ${count} worker(s)`));
   }
 
   async stop() {
-    console.log(`[manager] 🛑 graceful shutdown initiated...`);
+    console.log(chalk.red(`🛑 Shutting down all workers...`));
     this.shutdownRequested = true;
 
-    await Promise.all([...this.workers.values()].map((w) => w.stop()));
+    // Stop all worker loops gracefully
+    await Promise.all([...this.workers.values()].map(async (w) => {
+      clearInterval(w.heartbeat);
+      await w.stop();
+      db.prepare(`DELETE FROM workers WHERE id = ?`).run(w.id);
+    }));
 
-    console.log(`[manager] ✅ all workers stopped gracefully.`);
+    console.log(chalk.green(`✅ All workers stopped`));
     this.workers.clear();
   }
 }
+
 
 export { WorkerManager };
