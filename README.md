@@ -16,7 +16,7 @@ git clone https://github.com/Nehilsa2/QueueCTL.git
 cd queuectl
 ```
 ### Run test_script.sh file in bash
-Test script will run 
+Test script will run and a worker.log file will be created at root to store worker logs
 ```bash
 chmod +x test_script.sh
 ./test_script.sh
