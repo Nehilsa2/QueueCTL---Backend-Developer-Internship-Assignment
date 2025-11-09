@@ -19,15 +19,16 @@ app.get("/api/status", (req, res) => {
     const by_state = {};
     for (const s of states) by_state[s] = summary.by_state[s] || 0;
 
+
     res.json({
       by_state,
       ready_pending: summary.ready_pending,
-      active_workers,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
+
 
 
 // ✅ 2. List Jobs (optional ?state=pending)
@@ -79,13 +80,15 @@ app.delete("/api/jobs/:id", (req, res) => {
 // ✅ 6. Queue Metrics Summary
 app.get("/api/metrics", (req, res) => {
   try {
+    // Use DISTINCT job_id to avoid double counting retries
     const metrics = db
       .prepare(`
         SELECT
-          COUNT(*) AS total_jobs,
-          SUM(CASE WHEN state='completed' THEN 1 ELSE 0 END) AS completed,
-          SUM(CASE WHEN state='failed' THEN 1 ELSE 0 END) AS failed,
-          SUM(CASE WHEN state='dead' THEN 1 ELSE 0 END) AS timeouts,
+          COUNT(DISTINCT job_id) AS total_jobs,
+          COUNT(DISTINCT CASE WHEN state='completed' THEN job_id END) AS completed,
+          COUNT(DISTINCT CASE WHEN state='failed' THEN job_id END) AS failed,
+          COUNT(DISTINCT CASE WHEN state='timeout' THEN job_id END) AS timeouts,
+          COUNT(DISTINCT CASE WHEN state='dead' THEN job_id END) AS dead,
           ROUND(AVG(duration), 2) AS avg_duration
         FROM job_metrics
       `)
@@ -93,7 +96,7 @@ app.get("/api/metrics", (req, res) => {
 
     const recent = db
       .prepare(`
-        SELECT job_id, command, state, duration, completed_at
+        SELECT job_id, command, state, duration, worker_id, completed_at
         FROM job_metrics
         ORDER BY completed_at DESC
         LIMIT 10
