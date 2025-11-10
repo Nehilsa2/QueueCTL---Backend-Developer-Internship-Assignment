@@ -25,7 +25,7 @@
 ## ⚙️ **Setup & Installation**
 
 > **📝 Note:**  
-> This project requires Nodejs version **v20.x LTS**.  
+> This project requires Nodejs version **v20.x LTS**. (better-sqlite requires node -v 20.x) 
 > You can verify your version using:
 > ```bash
 > node -v
